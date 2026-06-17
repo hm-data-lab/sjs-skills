@@ -1,61 +1,89 @@
 #!/bin/bash
-# sjs-ipd-ppt 一键安装脚本
-# 自动检测已安装的 AI 工具并安装 Skill
+# sjs-skills 一键安装脚本
+# 安装所有或指定的 skill 到已安装的 AI 工具
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-SKILL_FILE="$SCRIPT_DIR/SKILL.md"
-
-if [ ! -f "$SKILL_FILE" ]; then
-    echo "错误: 未找到 SKILL.md，请在 sjs-ipd-ppt 目录下运行此脚本"
-    exit 1
-fi
-
-INSTALLED=0
+TARGET_SKILL="${1:-}"  # 可选：指定安装某个 skill
 
 # 定义工具及其 skills 路径
-declare -A TOOLS=(
-    ["Claude Code"]="$HOME/.claude/skills/sjs-ipd-ppt"
-    ["Copilot CLI"]="$HOME/.copilot/skills/sjs-ipd-ppt"
-    ["Codex"]="$HOME/.codex/skills/sjs-ipd-ppt"
-    ["OpenCode"]="$HOME/.opencode/skills/sjs-ipd-ppt"
-    ["MimoCode"]="$HOME/.mimocode/skills/sjs-ipd-ppt"
-    ["Qoder"]="$HOME/.qoder/skills/sjs-ipd-ppt"
+declare -A TOOL_PATHS=(
+    ["Claude Code"]="$HOME/.claude/skills"
+    ["Copilot CLI"]="$HOME/.copilot/skills"
+    ["Codex"]="$HOME/.codex/skills"
+    ["OpenCode"]="$HOME/.opencode/skills"
+    ["MimoCode"]="$HOME/.mimocode/skills"
+    ["Qoder"]="$HOME/.qoder/skills"
 )
 
-echo "=== sjs-ipd-ppt Skill 安装程序 ==="
+echo "=== sjs-skills 安装程序 ==="
 echo ""
 
-for tool_name in "${!TOOLS[@]}"; do
-    target_dir="${TOOLS[$tool_name]}"
-    parent_dir="$(dirname "$target_dir")"
-
+# 收集已安装的工具
+AVAILABLE_TOOLS=()
+for tool_name in "${!TOOL_PATHS[@]}"; do
+    parent_dir="${TOOL_PATHS[$tool_name]}"
     if [ -d "$parent_dir" ]; then
-        mkdir -p "$target_dir"
-        cp "$SKILL_FILE" "$target_dir/"
-        echo "已安装到 $tool_name: $target_dir"
-        INSTALLED=$((INSTALLED + 1))
-    else
-        echo "跳过 $tool_name (未检测到安装目录: $parent_dir)"
+        AVAILABLE_TOOLS+=("$tool_name")
     fi
 done
 
+if [ ${#AVAILABLE_TOOLS[@]} -eq 0 ]; then
+    echo "未检测到已安装的 AI 工具"
+    echo "支持的工具：Claude Code, Copilot CLI, Codex, OpenCode, MimoCode, Qoder"
+    echo "请先安装至少一个 AI 工具，或手动拷贝 SKILL.md"
+    exit 1
+fi
+
+echo "检测到工具：${AVAILABLE_TOOLS[*]}"
 echo ""
 
-# Cursor / Windsurf 支持
-CURSOR_DIR="${TOOLS["Claude Code"]%/*/*}"
-if [ -d "$HOME/.cursor" ] || [ -d "$HOME/.windsurf" ]; then
-    echo "检测到 Cursor/Windsurf，请手动将 SKILL.md 内容添加到项目 .cursorrules 文件"
+# 确定要安装的 skills
+if [ -n "$TARGET_SKILL" ]; then
+    if [ ! -d "$SCRIPT_DIR/$TARGET_SKILL" ]; then
+        echo "错误：未找到 skill '$TARGET_SKILL'"
+        echo "可用的 skills："
+        for dir in "$SCRIPT_DIR"/sjs-*/; do
+            [ -d "$dir" ] && echo "  $(basename "$dir")"
+        done
+        exit 1
+    fi
+    SKILLS=("$TARGET_SKILL")
+else
+    SKILLS=()
+    for dir in "$SCRIPT_DIR"/sjs-*/; do
+        [ -d "$dir" ] && SKILLS+=("$(basename "$dir")")
+    done
 fi
 
-if [ $INSTALLED -eq 0 ]; then
-    echo "未检测到已安装的 AI 工具"
-    echo "请手动拷贝 SKILL.md 到对应工具的 skills 目录"
-    echo ""
-    echo "手动安装方法："
-    echo "  mkdir -p <工具skills路径>/sjs-ipd-ppt"
-    echo "  cp SKILL.md <工具skills路径>/sjs-ipd-ppt/"
-else
-    echo ""
-    echo "安装完成！共安装到 $INSTALLED 个工具"
-    echo "重启对应的 AI 工具即可使用"
+if [ ${#SKILLS[@]} -eq 0 ]; then
+    echo "未找到任何 skill（以 sjs- 开头的目录）"
+    exit 1
 fi
+
+echo "准备安装 ${#SKILLS[@]} 个 skill：${SKILLS[*]}"
+echo ""
+
+# 安装
+INSTALLED=0
+for skill in "${SKILLS[@]}"; do
+    skill_file="$SCRIPT_DIR/$skill/SKILL.md"
+    if [ ! -f "$skill_file" ]; then
+        echo "跳过 $skill（未找到 SKILL.md）"
+        continue
+    fi
+
+    for tool_name in "${AVAILABLE_TOOLS[@]}"; do
+        target_dir="${TOOL_PATHS[$tool_name]}/$skill"
+        mkdir -p "$target_dir"
+
+        # 拷贝整个 skill 目录
+        cp -r "$SCRIPT_DIR/$skill/"* "$target_dir/" 2>/dev/null
+
+        echo "已安装 $skill → $tool_name"
+        INSTALLED=$((INSTALLED + 1))
+    done
+done
+
+echo ""
+echo "安装完成！共安装 $INSTALLED 个 skill"
+echo "重启对应的 AI 工具即可使用"
