@@ -67,11 +67,11 @@
 ```json
 {
   "product_lines": {
-    "空调": {
+    "ac": {
       "template": "/path/to/ac-template.pptx"
     },
-    "美菱": {
-      "template": "/path/to/meiling-template.pptx"
+    "ml": {
+      "template": "/path/to/ml-template.pptx"
     }
   }
 }
