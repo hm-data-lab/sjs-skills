@@ -689,8 +689,7 @@ def main():
     output_dir.mkdir(parents=True, exist_ok=True)
 
     outline_stem = Path(args.outline).stem
-    base_name = re.sub(r"-v\d+$", "", outline_stem)
-    output_path = str(output_dir / f"{base_name}-汇报材料.pptx")
+    output_path = str(output_dir / f"{outline_stem}-汇报材料.pptx")
 
     generate_ppt(outline, template_path, output_path, args.product_line)
 
