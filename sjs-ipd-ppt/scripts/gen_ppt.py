@@ -16,7 +16,6 @@ IPD 项目评审 PPT 生成脚本
 """
 
 import argparse
-import json
 import os
 import re
 import sys
@@ -25,16 +24,8 @@ from pathlib import Path
 from pptx import Presentation
 from pptx.util import Pt, Emu
 
-
-def load_config() -> dict:
-    """尝试加载 config.json"""
-    script_dir = Path(__file__).resolve().parent
-    skill_dir = script_dir.parent
-    config_path = skill_dir / "config.json"
-    if config_path.exists():
-        with open(config_path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
+from utils import load_config, strip_markdown_bold, get_stage_config
+from outline_parser import parse_outline
 
 
 def resolve_template(product_line: str, stage: str) -> str:
@@ -58,129 +49,6 @@ def get_company_info(product_line: str) -> dict:
         "ml": {"company": "长虹美菱股份有限公司", "department": "AI数智研发部"},
     }
     return info.get(product_line, info["ml"])
-
-
-# ── 大纲解析 ──────────────────────────────────────────────
-
-def parse_outline(md_path: str) -> dict:
-    """解析大纲 Markdown 文件"""
-    with open(md_path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    lines = content.split("\n")
-    result = {"title": "", "meta": "", "sections": [], "notes_map": {}}
-
-    in_notes_section = False
-    current_section = None
-    current_slide = None
-    last_chart_hint = None
-
-    i = 0
-    while i < len(lines):
-        line = lines[i].rstrip()
-        if not line:
-            i += 1
-            continue
-
-        stripped = line.strip()
-        if stripped.startswith("<!--"):
-            chart_match = re.search(r"chart:\s*(\w+)", stripped)
-            if chart_match:
-                last_chart_hint = chart_match.group(1)
-            i += 1
-            continue
-
-        if in_notes_section:
-            if stripped.startswith("## ") and not stripped.startswith("### "):
-                heading = stripped[3:].strip()
-                notes_lines = []
-                i += 1
-                while i < len(lines):
-                    nl = lines[i].rstrip()
-                    if nl.startswith("## ") or nl.startswith("# "):
-                        break
-                    if nl.startswith("- "):
-                        notes_lines.append(nl[2:].strip())
-                    elif nl and not nl.strip().startswith("<!--"):
-                        notes_lines.append(nl.strip())
-                    i += 1
-                result["notes_map"][heading] = "\n".join(notes_lines)
-            else:
-                i += 1
-            continue
-
-        if stripped.startswith("# ") and not stripped.startswith("## "):
-            result["title"] = stripped[2:].strip()
-            i += 1
-            continue
-
-        if stripped.startswith("> ") and "产品线" in stripped:
-            result["meta"] = stripped[2:].strip()
-            i += 1
-            continue
-
-        if stripped.startswith("## 备注区") or stripped == "## 备注":
-            in_notes_section = True
-            i += 1
-            continue
-
-        if stripped.startswith("## ") and not stripped.startswith("### "):
-            heading = stripped[3:].strip()
-            current_section = {"heading": heading, "slides": []}
-            result["sections"].append(current_section)
-            current_slide = None
-            last_chart_hint = None
-            i += 1
-            continue
-
-        if stripped.startswith("### "):
-            subtitle = stripped[4:].strip()
-            current_slide = {"subtitle": subtitle, "points": [], "chart": last_chart_hint}
-            if current_section is not None:
-                current_section["slides"].append(current_slide)
-            last_chart_hint = None
-            i += 1
-            continue
-
-        if stripped.startswith("|"):
-            if current_slide is None and current_section is not None:
-                current_slide = {"subtitle": None, "points": [], "chart": last_chart_hint}
-                current_section["slides"].append(current_slide)
-                last_chart_hint = None
-            table_rows = []
-            while i < len(lines):
-                tl = lines[i].rstrip().strip()
-                if tl.startswith("|"):
-                    if not re.match(r"^\|[\s\-:|]+\|$", tl):
-                        inner = tl.strip("|")
-                        cells = [c.strip() for c in inner.split("|")]
-                        table_rows.append(cells)
-                    i += 1
-                else:
-                    break
-            if table_rows and current_slide is not None:
-                for row in table_rows:
-                    current_slide["points"].append(" | ".join(row))
-            continue
-
-        if stripped.startswith("- "):
-            point = stripped[2:].strip()
-            if current_slide is None and current_section is not None:
-                current_slide = {"subtitle": None, "points": [], "chart": last_chart_hint}
-                current_section["slides"].append(current_slide)
-                last_chart_hint = None
-            if current_slide is not None:
-                current_slide["points"].append(point)
-            i += 1
-            continue
-
-        if current_slide is not None and not stripped.startswith("#"):
-            if stripped and stripped != "...":
-                current_slide["points"].append(stripped)
-
-        i += 1
-
-    return result
 
 
 # ── 模板页面操作 ──────────────────────────────────────────
@@ -319,7 +187,7 @@ def fill_table_data(table, points: list):
         for col_idx in range(min(template_cols, len(row_data))):
             cell = table.cell(row_idx, col_idx)
             value = row_data[col_idx]
-            value = re.sub(r"\*\*(.+?)\*\*", r"\1", value)
+            value = strip_markdown_bold(value)
             cell.text = value
             for para in cell.text_frame.paragraphs:
                 for run in para.runs:
@@ -416,7 +284,7 @@ def process_content_slide(slide, md_slides, prs):
 
         first = True
         for point in points:
-            point = re.sub(r"\*\*(.+?)\*\*", r"\1", point)
+            point = strip_markdown_bold(point)
             if first:
                 body_tf.paragraphs[0].text = point
                 for run in body_tf.paragraphs[0].runs:
@@ -540,34 +408,23 @@ def process_notes(slide, outline, heading):
         slide.notes_slide.notes_text_frame.text = notes
 
 
-# ── 主流程 ────────────────────────────────────────────────
-
-# 固定不动的 slide 索引
-FIXED_SLIDES = {1, 19, 20}  # 目录、专业委员会、结束页
-
-# 封面页
-COVER_SLIDE = 0
-
-# 结论-总结页（需要特殊处理）
-SUMMARY_SLIDE = 18
 
 
-def generate_ppt(outline: dict, template_path: str, output_path: str, product_line: str = "ml"):
+def generate_ppt(outline: dict, template_path: str, output_path: str,
+                 product_line: str = "ml", stage: str = "charter"):
     """根据大纲和模板生成 PPT"""
+    cfg = get_stage_config(stage)
     prs = Presentation(template_path)
     slides = list(prs.slides)
 
     matched = 0
-
-    # 按章节分组大纲内容
-    # 每个章节的 sub-slides 按顺序分配给模板中匹配的 slide
-    section_slide_counter = {}  # 记录每个章节已处理的 sub-slide 数量
+    section_slide_counter = {}
 
     for slide_num in range(len(slides)):
-        if slide_num in FIXED_SLIDES or slide_num == COVER_SLIDE:
+        if slide_num in cfg["fixed_slides"] or slide_num == cfg["cover_slide"]:
             continue
 
-        if slide_num == SUMMARY_SLIDE:
+        if slide_num == cfg["summary_slide"]:
             process_summary_slide(slides[slide_num], outline)
             matched += 1
             continue
@@ -588,29 +445,26 @@ def generate_ppt(outline: dict, template_path: str, output_path: str, product_li
         heading = matched_section["heading"]
         md_slides = matched_section["slides"]
 
-        # 获取当前章节已处理的 sub-slide 数量
         if heading not in section_slide_counter:
             section_slide_counter[heading] = 0
         sub_idx = section_slide_counter[heading]
 
-        # 获取对应的 sub-slide
         if sub_idx < len(md_slides):
             current_md = md_slides[sub_idx]
             md_slides_for_page = [current_md]
         else:
-            # 没有更多 sub-slide 了，跳过
             continue
 
         # 判断页面类型并处理
         table = find_table(slides[slide_num])
 
         if table:
-            is_scoring = (slide_num == 17)
+            is_scoring = (cfg["scoring_slide"] is not None and slide_num == cfg["scoring_slide"])
             process_table_slide(slides[slide_num], md_slides_for_page, is_scoring=is_scoring)
-        elif slide_num == 9:
-            # 项目价值页（图表页）- 不处理
+        elif cfg["value_page"] is not None and slide_num == cfg["value_page"]:
+            # 项目价值页（图表页）- 不处理，由 content_layout 增强
             pass
-        elif slide_num == 15:
+        elif cfg["output_page"] is not None and slide_num == cfg["output_page"]:
             # 产出收益页 - 替换正文
             body = find_body_shape(slides[slide_num])
             if body and body.has_text_frame:
@@ -621,7 +475,7 @@ def generate_ppt(outline: dict, template_path: str, output_path: str, product_li
                     p._element.getparent().remove(p._element)
                 first = True
                 for point in current_md["points"]:
-                    point = re.sub(r"\*\*(.+?)\*\*", r"\1", point)
+                    point = strip_markdown_bold(point)
                     if first:
                         tf.paragraphs[0].text = point
                         for run in tf.paragraphs[0].runs:
@@ -643,7 +497,7 @@ def generate_ppt(outline: dict, template_path: str, output_path: str, product_li
         matched += 1
 
     # 处理封面
-    process_cover(slides[COVER_SLIDE], outline, prs, product_line)
+    process_cover(slides[cfg["cover_slide"]], outline, prs, product_line)
 
     prs.save(output_path)
     print(f"PPT 已生成: {output_path}")
@@ -668,6 +522,10 @@ def main():
     parser.add_argument("--output", default=".", help="输出目录")
     parser.add_argument("--stage", default=None,
                         help="阶段（可选，默认从文件名解析）")
+    parser.add_argument("--chart-mode", default="auto", choices=["auto", "manual", "none"],
+                        help="图表模式：auto（自动推断）/ manual（只用标注）/ none（跳过）")
+    parser.add_argument("--skip-layout", action="store_true",
+                        help="跳过 content_layout 布局增强（仅生成文字+表格）")
     args = parser.parse_args()
 
     if not os.path.exists(args.outline):
@@ -691,7 +549,23 @@ def main():
     outline_stem = Path(args.outline).stem
     output_path = str(output_dir / f"{outline_stem}-汇报材料.pptx")
 
-    generate_ppt(outline, template_path, output_path, args.product_line)
+    generate_ppt(outline, template_path, output_path, args.product_line, stage)
+
+    # 阶段二：内容布局增强（自动图表推断）
+    if not args.skip_layout:
+        try:
+            from content_layout import enhance_ppt
+            print(f"\n--- 内容布局增强（chart_mode={args.chart_mode}）---")
+            enhance_ppt(output_path, args.outline, chart_mode=args.chart_mode, stage=stage)
+        except ImportError as e:
+            print(f"⚠ content_layout 未找到，跳过布局增强: {e}", file=sys.stderr)
+        except (RuntimeError, ValueError, OSError) as e:
+            print(f"⚠ 布局增强失败: {e}", file=sys.stderr)
+        except Exception as e:
+            # 捕获未预期的异常，打印详细信息供调试
+            print(f"⚠ 布局增强异常（请报告此错误）: {type(e).__name__}: {e}",
+                  file=sys.stderr)
+            raise
 
 
 if __name__ == "__main__":

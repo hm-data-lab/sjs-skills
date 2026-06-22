@@ -65,6 +65,7 @@ echo ""
 
 # 安装
 INSTALLED=0
+FAILED=0
 for skill in "${SKILLS[@]}"; do
     skill_file="$SCRIPT_DIR/$skill/SKILL.md"
     if [ ! -f "$skill_file" ]; then
@@ -74,16 +75,27 @@ for skill in "${SKILLS[@]}"; do
 
     for tool_name in "${AVAILABLE_TOOLS[@]}"; do
         target_dir="${TOOL_PATHS[$tool_name]}/$skill"
-        mkdir -p "$target_dir"
+        mkdir -p "$target_dir" || {
+            echo "错误：无法创建目录 $target_dir"
+            FAILED=$((FAILED + 1))
+            continue
+        }
 
-        # 拷贝整个 skill 目录
-        cp -r "$SCRIPT_DIR/$skill/"* "$target_dir/" 2>/dev/null
-
-        echo "已安装 $skill → $tool_name"
-        INSTALLED=$((INSTALLED + 1))
+        # 拷贝整个 skill 目录（不隐藏错误）
+        if cp -r "$SCRIPT_DIR/$skill/"* "$target_dir/"; then
+            echo "已安装 $skill → $tool_name"
+            INSTALLED=$((INSTALLED + 1))
+        else
+            echo "错误：安装 $skill 到 $tool_name 失败"
+            FAILED=$((FAILED + 1))
+        fi
     done
 done
 
 echo ""
-echo "安装完成！共安装 $INSTALLED 个 skill"
+if [ $FAILED -gt 0 ]; then
+    echo "安装完成！成功 $INSTALLED 个，失败 $FAILED 个"
+else
+    echo "安装完成！共安装 $INSTALLED 个 skill"
+fi
 echo "重启对应的 AI 工具即可使用"
