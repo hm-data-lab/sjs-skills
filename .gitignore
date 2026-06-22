@@ -3,3 +3,11 @@ __pycache__/
 .DS_Store
 *.pptx
 config.json
+
+# 运行时目录
+output/
+workspace/
+runtime/
+temp/
+tmp/
+.browser-profile/

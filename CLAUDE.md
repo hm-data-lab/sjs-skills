@@ -56,6 +56,16 @@ IPD 项目评审 PPT 生成（Charter / PDCP / ADCP / 转移）。
 - **首次使用:** 需配置 `config.json`（模板路径、项目目录、人力成本、产品线），参见 [references/config-guide.md](sjs-ipd-ppt/references/config-guide.md)
 - **评审阶段指南:** [references/charter-guide.md](sjs-ipd-ppt/references/charter-guide.md)、[pdcp-guide.md](sjs-ipd-ppt/references/pdcp-guide.md)、[adcp-guide.md](sjs-ipd-ppt/references/adcp-guide.md)、[transfer-guide.md](sjs-ipd-ppt/references/transfer-guide.md)
 
+### sjs-wecom-smartsheet
+
+企业微信智能表格读取分析（跨平台，自动检测浏览器）。
+
+- **快速启动:** [scripts/wecom_quick_start.py](sjs-wecom-smartsheet/scripts/wecom_quick_start.py) — 自动检测默认浏览器
+- **Excel 分析:** [scripts/wecom_analyze_excel.py](sjs-wecom-smartsheet/scripts/wecom_analyze_excel.py) — 分析导出的 Excel 文件
+- **工作目录:** `workspace/` — 存放每次运行的输出（按时间戳组织）
+- **跨平台:** 支持 Windows、macOS、Linux
+- **浏览器支持:** 自动检测 Chrome、Edge、Firefox 等本地默认浏览器
+
 ## Key Conventions
 
 - Skill 指令用中文编写，代码注释可用中英文

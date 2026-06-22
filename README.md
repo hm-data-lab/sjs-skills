@@ -7,6 +7,7 @@
 | Skill | 说明 | 状态 |
 |-------|------|------|
 | [sjs-ipd-ppt](sjs-ipd-ppt/) | IPD 项目评审 PPT 生成（Charter/PDCP/ADCP/转移） | 可用 |
+| [sjs-wecom-smartsheet](sjs-wecom-smartsheet/) | 企业微信智能表格读取分析（跨平台，自动检测浏览器） | 可用 |
 
 > 所有数据所 Skill 统一以 `sjs-` 为前缀。
 

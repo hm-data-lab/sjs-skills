@@ -8,6 +8,17 @@ Format based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### sjs-wecom-smartsheet
+
+#### Added
+
+- 企业微信智能表格读取分析 Skill
+- 自动检测本地默认浏览器（Chrome/Edge/Firefox）
+- 跨平台支持（Windows/macOS/Linux）
+- 快速启动脚本 `wecom_quick_start.py`
+- Excel 分析工具 `wecom_analyze_excel.py`
+- 浏览器检测工具 `browser_utils.py`
+
 ### sjs-ipd-ppt
 
 #### Added
