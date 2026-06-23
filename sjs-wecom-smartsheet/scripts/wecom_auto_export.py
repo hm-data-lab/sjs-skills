@@ -141,7 +141,7 @@ async def do_login(skill_dir: str):
         page = context.pages[0] if context.pages else await context.new_page()
 
         # 导航到企微文档
-        await page.goto(WEIXIN_DOC_URL, wait_until="domcontentloaded", timeout=30000)
+        await page.goto(WEIXIN_DOC_URL, wait_until="networkidle", timeout=60000)
         await asyncio.sleep(3)
 
         print(f"\n  当前页面: {page.url}")
@@ -280,7 +280,7 @@ async def do_export(
 
             try:
                 # 导航
-                await page.goto(WEIXIN_DOC_URL, wait_until="domcontentloaded", timeout=30000)
+                await page.goto(WEIXIN_DOC_URL, wait_until="networkidle", timeout=60000)
                 await asyncio.sleep(3)
 
                 url = page.url
@@ -339,6 +339,16 @@ async def do_export(
                         return None, False
 
                 print_success("已登录企业微信")
+
+                # 列出文档
+                doc_names = await list_documents(page)
+                if doc_names:
+                    print_info(f"当前可用文档（共 {len(doc_names)} 个）：")
+                    for i, name in enumerate(doc_names[:20], 1):
+                        print(f"    {i:2d}. {name}")
+                    if len(doc_names) > 20:
+                        print(f"    ... 还有 {len(doc_names) - 20} 个文档")
+                    print()
 
                 # 查找表格
                 if table_name:
@@ -412,6 +422,145 @@ async def do_export(
                     print_error(f"分析失败: {result.stderr[:200]}")
         else:
             print_error("导出失败")
+
+
+# ============================================================
+# 文档列表
+# ============================================================
+
+async def list_documents(page) -> list:
+    """列出当前可见的文档名"""
+    items = await page.query_selector_all('.fileList_item')
+    names = []
+    for item in items:
+        name_el = await item.query_selector('.fileList_item_name')
+        if name_el:
+            names.append((await name_el.inner_text()).strip())
+    return names
+
+
+async def do_list(skill_dir: str):
+    """登录后列出可用文档"""
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        print_error("需要安装 playwright: pip install playwright")
+        sys.exit(1)
+
+    storage_path = get_storage_state_path()
+
+    async with async_playwright() as p:
+
+        async def _try_list(headless=True):
+            """尝试列出文档，返回 (names, need_fallback)"""
+            mode = "headless" if headless else "可见"
+            print_info(f"使用 {mode} 浏览器...")
+
+            launch_args = ["--disable-blink-features=AutomationControlled"]
+            browser = await p.chromium.launch(
+                headless=headless,
+                channel="msedge",
+                args=launch_args,
+            )
+
+            context_kwargs = {}
+            if os.path.exists(storage_path):
+                context_kwargs["storage_state"] = storage_path
+
+            context = await browser.new_context(**context_kwargs)
+            page = await context.new_page()
+
+            try:
+                await page.goto(WEIXIN_DOC_URL, wait_until="networkidle", timeout=60000)
+                await asyncio.sleep(3)
+
+                url = page.url
+                print_info(f"页面: {url}")
+
+                # 检测登录状态
+                if "login" in url.lower():
+                    if headless:
+                        print_info("需要登录，切换到可见浏览器...")
+                        await context.close()
+                        await browser.close()
+                        return None, True
+                    else:
+                        print_waiting("请在浏览器中登录...")
+                        is_logged_in = await wait_for_login(page, LOGIN_WAIT_TIMEOUT)
+                        if not is_logged_in:
+                            print_error("登录超时")
+                            await context.close()
+                            await browser.close()
+                            return None, False
+                        # 保存登录态
+                        state = await context.storage_state()
+                        with open(storage_path, "w", encoding="utf-8") as f:
+                            json.dump(state, f, ensure_ascii=False, indent=2)
+                        print_success("登录态已保存")
+
+                # 检测验证
+                has_verification = await _check_verification(page)
+                if has_verification:
+                    if headless:
+                        print_info("检测到验证，切换到可见浏览器...")
+                        await context.close()
+                        await browser.close()
+                        return None, True
+                    else:
+                        print_waiting("请在浏览器中完成验证...")
+                        await _wait_for_verification(page)
+                        state = await context.storage_state()
+                        with open(storage_path, "w", encoding="utf-8") as f:
+                            json.dump(state, f, ensure_ascii=False, indent=2)
+
+                # 再次检查登录状态
+                is_logged_in = await check_login_status(page)
+                if not is_logged_in:
+                    if headless:
+                        print_info("未登录，切换到可见浏览器...")
+                        await context.close()
+                        await browser.close()
+                        return None, True
+                    else:
+                        print_error("未登录")
+                        await context.close()
+                        await browser.close()
+                        return None, False
+
+                print_success("已登录企业微信")
+
+                # 列出文档
+                doc_names = await list_documents(page)
+                await context.close()
+                await browser.close()
+                return doc_names, False
+
+            except Exception as e:
+                print_error(f"出错: {e}")
+                try:
+                    await context.close()
+                    await browser.close()
+                except Exception:
+                    pass
+                return None, headless
+
+        # 主流程
+        print_step(1, 2, "启动浏览器")
+        doc_names, need_fallback = await _try_list(headless=True)
+
+        if need_fallback:
+            print_info("切换到可见浏览器...")
+            doc_names, _ = await _try_list(headless=False)
+
+        if doc_names:
+            print_step(2, 2, "文档列表")
+            print_success(f"共 {len(doc_names)} 个文档：\n")
+            for i, name in enumerate(doc_names[:30], 1):
+                print(f"  {i:2d}. {name}")
+            if len(doc_names) > 30:
+                print(f"  ... 还有 {len(doc_names) - 30} 个文档")
+        else:
+            print_error("未找到文档")
 
 
 # ============================================================
@@ -660,6 +809,7 @@ def main():
     parser.add_argument("--table", help="目标表格名称（可选）")
     parser.add_argument("--skill-dir", help="Skill 安装目录")
     parser.add_argument("--login", action="store_true", help="启动浏览器进行登录")
+    parser.add_argument("--list", action="store_true", help="列出可用文档")
     args = parser.parse_args()
 
     skill_dir = args.skill_dir or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -673,6 +823,8 @@ def main():
 
     if args.login:
         asyncio.run(do_login(skill_dir))
+    elif args.list:
+        asyncio.run(do_list(skill_dir))
     else:
         asyncio.run(do_export(
             output_dir=output_dir,
